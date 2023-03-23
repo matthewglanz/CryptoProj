@@ -18,3 +18,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
       print(f"Received: {data.decode('utf-8').strip()}")
       message = input("Enter message: ")
       conn.sendall(message.encode('utf-8'))
+      
+    
+  
+  
