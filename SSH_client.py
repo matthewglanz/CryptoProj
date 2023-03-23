@@ -6,6 +6,8 @@ PORT = 1234
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
   sock.connect((HOST, PORT))
   print(f"Connected to {HOST}:{PORT}")
+  data = sock.recv(1024)
+  print(f"{data.decode('utf-8').strip()}")
   while True:
     message = input("Enter message (exit to quit): ")
     if(message == "exit"):
@@ -15,6 +17,5 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     if not data:
       break
     print(f"Received: {data.decode('utf-8').strip()}")
-  #disconnect
   sock.close()
-  
+
