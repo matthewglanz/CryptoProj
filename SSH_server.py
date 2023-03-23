@@ -11,7 +11,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
   conn, addr = sock.accept()
   with conn:
     print(f"Connected by {addr}")
-    conn.sendall("Welcome to CryptoBank, How can I help you today?".encode('utf-8'))
+    conn.sendall("Welcome to CryptoBank, How can I help you today? \n Menu Options: \n || Balance || Withdraw || Deposit ||".encode('utf-8'))
     while True:
       data = conn.recv(1024)
       if not data:
