@@ -10,6 +10,81 @@ import random
 import time
 import hashlib
 
+#RC4 is a stream cipher found in lecture notes 3.1
+def simpRC4(ptext):
+    
+    key = []
+    
+    #Key Gen
+    S = []
+    for i in range(ptext):
+        S.append(random.randint(0, 255))
+        
+    T = []
+    for i in range(ptext):
+        T.append(random.randint(0, 255))
+        
+    j = 0
+    for i in range(ptext):
+        j = (j + S[i] + T[i]) % ptext
+        temp = S[i]
+        S[i] = S[j]
+        S[j] = temp
+        
+    #Loop through the plaintext and generate one bit of key per one bit of ptext
+    j = 0
+    for i in range(ptext):
+        j = (j + S[i]) % ptext
+        temp = S[i]
+        S[i] = S[j]
+        S[j] = temp
+        t = (S[i] + S[j]) % ptext
+        key.append(S[t])
+        
+    return key
+
+#Key and ptext are list of ints (0-255)
+#Returns an encrypted string
+def encryptRC4(key, ptext):
+    asciiText = []
+    ans = []
+    res = ""
+    for i in range(len(ptext)):
+        asciiText.append(ord(ptext[i]))
+        ans.append(key[i] ^ asciiText[i])
+        res = res + str(ans[i]) + "|"
+    res = res[:-1]
+    return res
+    
+#Key is a list of ints
+#ctext is a string
+#Returns a decrypted string
+def decryptRC4(key, ctext):
+    
+    cipher = ctext.split("|")
+    
+    ans = []
+    for i in range(len(cipher)):
+        ans.append(key[i] ^ int(cipher[i]))
+    
+    #Convert the ints to chars
+    word = ""
+    for i in range(len(ans)):
+        word = word + chr(ans[i])
+    return word
+
+#A quality of life function that generates the key and encryption for the message to send
+def sendRC4(ptext):
+    key = simpRC4(len(ptext))
+    msg = (encryptRC4(key, ptext)).encode('utf-8')
+    return msg
+
+#A quality of life function that generates the key and decrypts the given ciphertext
+def receiveRC4(ctext):
+    key = simpRC4(ctext.count("|") + 1)
+    msg = decryptRC4(key, ctext)
+    return msg
+
 def exp(x, e, n):
     ans = 1
     for i in range(e):
@@ -53,6 +128,8 @@ def paillierDecrypt(c, lamb, mu, n):
 HOST = 'localhost'
 PORT = 1234
 
+random.seed(1)
+
 balance = 1000
 paillierP = 2003 #PRIVATE
 paillierQ = 2371 #PRIVATE
@@ -61,6 +138,12 @@ paillierN = paillierP * paillierQ #PUBLIC
 
 paillierG = paillierN #GENERATED RANDOMLY (down below)
 paillierR = 43922 #GENERATED RANDOMLY, i think this also has special properties but idk
+
+#The cryptocounter to track excessive use of ATM
+counter = 1
+counterG = 525 #A primitive root of paillierP
+counterI = 0
+counterMu = pow(int(paillierL( exp(counterG, paillierLambda, paillierN*paillierN), paillierN)), -1, paillierN)
 
 while( math.gcd(paillierG, paillierN*paillierN) != 1):
     paillierG = random.randint(1, paillierN)
@@ -81,17 +164,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
   print(f"Listening on {HOST}:{PORT}")
 
   conn, addr = sock.accept()
-  
-  #Perform SSL handshake protocol
-  #bobID = conn.recv(1024).decode('utf-8') #RECEIVE BOBS ID
-  #conn.sendall(f"Received bob's ID".encode('utf-8'))
-  #idk what to do with his id, i guess just leave it
-  """ public_key = conn.recv(1024).decode('utf-8') #RECEIVE PUBLIC KEY
-  receivedTimeStamp = conn.recv(1024).decode('utf-8')
-  print(f"{bobID}")
-  print(f"{public_key}")
-  print(f"{receivedTimeStamp}")"""
-  #print(bobID)
   
   with conn:
     print(f"Connected by {addr}")
@@ -115,7 +187,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     signature = conn.recv(1024).decode('utf-8')
     
     #Send the secret key to be used
-    key = 87281 #This is the key to be used for encryptions
+    key = 87281 #This is the SEED FOR THE RC4 STREAM ENCRYPTION
     
     #Encrypt it using bobs public key (RSAe)
     publicKey =int(conn.recv(1024).decode('utf-8'))
@@ -140,56 +212,76 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     
     #END HANDSHAKE PROTOCOL, ESTABLISHED IT IS BOB
     
+    #THE SHARED KEY IS USED AS THE SEED FOR RANDOMIZATION
+    random.seed(key)
     
-    conn.sendall("Welcome to CryptoBank, How can I help you today? \n Menu Options: \n || Balance || Withdraw || Deposit ||".encode('utf-8'))
+    conn.sendall(sendRC4("Welcome to CryptoBank, How can I help you today? \n Menu Options: \n || Balance || Withdraw || Deposit ||"))
     while True:
-      data = conn.recv(1024)
+      data = receiveRC4(conn.recv(1024).decode('utf-8'))
+      
+         
       if not data:
         break
-      print(f"Received: {data.decode('utf-8').strip()}")
+      print("Received:", data)
       
+      #Compute the new cryptocounter
+      counter = counter * exp(counterG, 1, paillierN*paillierN) * exp (494, paillierN, paillierN*paillierN) % (paillierN*paillierN)
+      counterI += 1
+      
+      #Check if the user is suspiciously using the ATM too much...
+      decCounter = paillierDecrypt(counter, paillierLambda, counterMu, paillierN)
+      if(decCounter > 1000):
+          print("You have used the ATM too many times. It is now disabled for security reasons")
+          #Should probably put another error message here
+
+
+      
+          
+      
+
+
       #balance
-      if(data.decode('utf-8').strip() == "Balance"):
-        conn.sendall(f"Your current balance is {balance}".encode('utf-8'))
+      if(data == "Balance"):
+        conn.sendall(sendRC4("Your current balance is " + str(balance)))
       
       #withdraw
-      elif(data.decode('utf-8').strip() == "Withdraw"):
+      elif(data == "Withdraw"):
         #send message asking for amount
-        conn.sendall("How much would you like to withdraw?".encode('utf-8'))
-      
-        #receive amount
-        data = conn.recv(1024)
-        amount = int(data.decode('utf-8').strip())
+        conn.sendall(sendRC4("How much would you like to withdraw?"))
+        val = conn.recv(1024).decode('utf-8')
+        amount = int(receiveRC4(val))
+        
         if(amount > balance or amount < 0):
-          conn.sendall("Insufficient Funds".encode('utf-8'))
+          conn.sendall(sendRC4("Insufficient Funds"))
         else:
           cipherAmount = paillierEncrypt(paillierG, amount, paillierR, paillierN)
           cipherBalance = cipherBalance * pow(cipherAmount,-1, paillierN*paillierN)
           #balance = balance - amount
           balance = paillierDecrypt(cipherBalance, paillierLambda, paillierMu, paillierN)
-          conn.sendall(f"Your new balance is {balance}".encode('utf-8'))
+          conn.sendall(sendRC4("Your new balance is " + str(balance)))
       
         #deposit
-      elif(data.decode('utf-8').strip() == "Deposit"):
+      elif(data == "Deposit"):
         #send message asking for amount
-        conn.sendall("How much would you like to deposit?".encode('utf-8'))
+        conn.sendall(sendRC4("How much would you like to deposit?"))
         #receive amount
-        data = conn.recv(1024)
-        amount = int(data.decode('utf-8').strip())
+        val = conn.recv(1024).decode('utf-8')
+        amount = int(receiveRC4(val))
         if(amount < 0):
-            conn.sendall("Cannot deposit negative funds".encode('utf-8'))
-        cipherAmount = paillierEncrypt(paillierG, amount, paillierR, paillierN)
-        cipherBalance = cipherBalance * cipherAmount
-        balance = paillierDecrypt(cipherBalance, paillierLambda, paillierMu, paillierN)
-        conn.sendall(f"Your new balance is {balance}".encode('utf-8'))
+            conn.sendall(sendRC4("Cannot deposit negative funds"))
+        else: 
+            cipherAmount = paillierEncrypt(paillierG, amount, paillierR, paillierN)
+            cipherBalance = cipherBalance * cipherAmount
+            balance = paillierDecrypt(cipherBalance, paillierLambda, paillierMu, paillierN)
+            conn.sendall(sendRC4("Your new balance is " + str(balance)))
       
         #exit
-      elif(data.decode('utf-8').strip() == "Exit"):
-        conn.sendall("Goodbye!".encode('utf-8'))
+      elif(data == "Exit"):
+        conn.sendall(sendRC4("Goodbye!"))
         break
       
       else:
-          conn.sendall("Invalid entry".encode('utf-8'))
+          conn.sendall(sendRC4("Invalid entry"))
       
     
     conn.close()

@@ -11,11 +11,88 @@ import random
 HOST = 'localhost'
 PORT = 1234
 
+#RC4 is a stream cipher found in lecture notes 3.1
+def simpRC4(ptext):
+    
+    key = []
+    
+    #Key Gen
+    S = []
+    for i in range(ptext):
+        S.append(random.randint(0, 255))
+        
+    T = []
+    for i in range(ptext):
+        T.append(random.randint(0, 255))
+        
+    j = 0
+    for i in range(ptext):
+        j = (j + S[i] + T[i]) % ptext
+        temp = S[i]
+        S[i] = S[j]
+        S[j] = temp
+        
+    #Loop through the plaintext and generate one bit of key per one bit of ptext
+    j = 0
+    for i in range(ptext):
+        j = (j + S[i]) % ptext
+        temp = S[i]
+        S[i] = S[j]
+        S[j] = temp
+        t = (S[i] + S[j]) % ptext
+        key.append(S[t])
+        
+    return key
+
+#Key and ptext are list of ints (0-255)
+#Returns an encrypted string
+def encryptRC4(key, ptext):
+    asciiText = []
+    ans = []
+    res = ""
+    for i in range(len(ptext)):
+        asciiText.append(ord(ptext[i]))
+        ans.append(key[i] ^ asciiText[i])
+        res = res + str(ans[i]) + "|"
+    res = res[:-1]
+    return res
+    
+#Key is a list of ints
+#ctext is a string
+#Returns a decrypted string
+def decryptRC4(key, ctext):
+    
+    cipher = ctext.split("|")
+    
+    ans = []
+    for i in range(len(cipher)):
+        ans.append(key[i] ^ int(cipher[i]))
+    
+    #Convert the ints to chars
+    word = ""
+    for i in range(len(ans)):
+        word = word + chr(ans[i])
+    return word
+
+#A quality of life function that generates the key and encryption for the message to send
+def sendRC4(ptext):
+    key = simpRC4(len(ptext))
+    msg = (encryptRC4(key, ptext)).encode('utf-8')
+    return msg
+
+#A quality of life function that generates the key and decrypts the given ciphertext
+def receiveRC4(ctext):
+    key = simpRC4(ctext.count("|") + 1)
+    msg = decryptRC4(key, ctext)
+    return msg
+
 def exp(x, e, n):
     ans = 1
     for i in range(e):
         ans = (ans * x) % n
     return ans
+
+random.seed(1)
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
   sock.connect((HOST, PORT))
@@ -58,6 +135,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
   
   #Receive the shared encrypted key and decrypt it
   encryptedKey = int(sock.recv(1024).decode('utf-8'))
+  
+  #THIS SECRET KEY IS THE SEED FOR THE RC4 STREAM CIPHER
   secretKey = exp(encryptedKey, RSAd, RSAn)
 
   
@@ -77,22 +156,29 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
   
   #DONE HANDSHAKE PROTOCOL
   
-  
-  
+  #THIS KEY WAS ESTABLISHED THROUGH THE HANDSHAKE
+  random.seed(secretKey)
   
   
   #Receive instructions on how to bank
-  data = sock.recv(1024)
-  print(f"{data.decode('utf-8').strip()}")
+  data = receiveRC4(sock.recv(1024).decode('utf-8'))
+  print(data)
   
   
   while True:
     message = input("Enter message ('Exit' to quit): ")
-    if(message.strip() == "Exit"):
+  
+    #Encrypt the message
+    sock.sendall(sendRC4(message))
+    
+    #Receive the next msg
+    data = sock.recv(1024).decode('utf-8')
+    msg = receiveRC4(data)
+    
+    if(message == "Exit"):
       break
-    sock.sendall(message.encode('utf-8'))
-    data = sock.recv(1024)
+    
     if not data:
       break
-    print(f"Received: {data.decode('utf-8').strip()}")
+    print("Received:", msg)
   sock.close()
