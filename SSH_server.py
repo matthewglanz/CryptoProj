@@ -9,6 +9,7 @@ import math
 import random
 import time
 import hashlib
+import sys
 
 #RC4 is a stream cipher found in lecture notes 3.1
 def simpRC4(ptext):
@@ -205,10 +206,14 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     #Make sure the hashes match
     msgMAC = hashlib.new('sha1')
     msgMAC.update(str(msg).encode('utf-8'))
+    #msgMAC.update("hi".encode('utf-8'))
     msgMAChash = int(msgMAC.hexdigest(), 16)    
     if(MAChash != msgMAChash):
         print("Error in hash values")
-        #NEED AN ERROR STATEMENT HERE, should NOT be able to continue
+        random.seed(key)
+        conn.sendall(sendRC4("Error"))
+        conn.close()
+        sys.exit()
     
     #END HANDSHAKE PROTOCOL, ESTABLISHED IT IS BOB
     
@@ -231,13 +236,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
       #Check if the user is suspiciously using the ATM too much...
       decCounter = paillierDecrypt(counter, paillierLambda, counterMu, paillierN)
       if(decCounter > 1000):
+          conn.sendall(sendRC4("Error"))
           print("You have used the ATM too many times. It is now disabled for security reasons")
-          #Should probably put another error message here
-
-
-      
-          
-      
+          conn.close()
+          sys.exit()
 
 
       #balance
@@ -247,12 +249,19 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
       #withdraw
       elif(data == "Withdraw"):
         #send message asking for amount
-        conn.sendall(sendRC4("How much would you like to withdraw?"))
+        conn.sendall(sendRC4("How much would you like to withdraw? (Whole dollars)"))
         val = conn.recv(1024).decode('utf-8')
-        amount = int(receiveRC4(val))
+        amount = receiveRC4(val)
+        if((amount.startswith('-') is True and amount[1:].isnumeric() is False) or (amount.startswith('-') is False and amount.isnumeric() is False)):
+            conn.sendall(sendRC4("Error"))
+            conn.close()
+            sys.exit()
+        amount = int(amount)
         
-        if(amount > balance or amount < 0):
+        if(amount > balance):
           conn.sendall(sendRC4("Insufficient Funds"))
+        elif(amount < 0):
+          conn.sendall(sendRC4("Cannot withdraw negative money"))
         else:
           cipherAmount = paillierEncrypt(paillierG, amount, paillierR, paillierN)
           cipherBalance = cipherBalance * pow(cipherAmount,-1, paillierN*paillierN)
@@ -263,10 +272,16 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         #deposit
       elif(data == "Deposit"):
         #send message asking for amount
-        conn.sendall(sendRC4("How much would you like to deposit?"))
+        conn.sendall(sendRC4("How much would you like to deposit? (Whole dollars)"))
         #receive amount
         val = conn.recv(1024).decode('utf-8')
-        amount = int(receiveRC4(val))
+        amount = receiveRC4(val)
+
+        if((amount.startswith('-') is True and amount[1:].isnumeric() is False) or (amount.startswith('-') is False and amount.isnumeric() is False)):
+            conn.sendall(sendRC4("Error"))
+            conn.close()
+            sys.exit()
+        amount = int(amount)
         if(amount < 0):
             conn.sendall(sendRC4("Cannot deposit negative funds"))
         else: 
